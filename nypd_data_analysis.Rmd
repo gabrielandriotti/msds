@@ -1,0 +1,97 @@
+---
+title: "NYPD Shooting Incident Data Report"
+output:
+  html_document: default
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+
+### Import data
+
+This is a breakdown of every shooting incident that occurred in NYC going back to 2006 through the end of the previous calendar year. This data is manually extracted every quarter and reviewed by the Office of Management Analysis and Planning before being posted on the NYPD website. Each record represents a shooting incident in NYC and includes information about the event, the location and time of occurrence. In addition, information related to suspect and victim demographics is also included.
+
+```{r importing}
+raw_data = read_csv("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv", show_col_types = FALSE)
+```
+
+### Tidy and transform data
+
+```{r tidying}
+data = raw_data %>%
+  mutate(Date=mdy(OCCUR_DATE), 
+         Region=as.factor(BORO),
+         Murder=as.integer(STATISTICAL_MURDER_FLAG),
+         Victim_Sex=as.factor(VIC_SEX)) %>%
+  mutate(Year=year(Date)) %>%
+  select(Year,Region,Murder,Victim_Sex)
+```
+
+### Data summary
+
+```{r summary}
+summary(data)
+```
+
+### Missing values
+
+There is no missing values with the columns I am using for this analysis.
+
+```{r missing}
+colSums(is.na(data))
+```
+
+
+### Incidents per Year per Region
+
+```{r viz_1}
+
+data_per_year = data %>%
+  group_by(Year,Region) %>%
+  summarise(Incidents = n())
+
+ggplot(data_per_year, aes(x = Year, y=Incidents, fill = Region, color=Region)) +
+  geom_line() + geom_point() +
+  theme_minimal()
+
+```
+
+
+### Murder across Regions per Victim sex
+
+Apparently there is no difference in the percentage of murders across regions for men but this is not that true for women. It's possible to see some signals at Queens and Staten Island among women that will be modeled afterwards. One caveat here is that the sample size of Staten Island is small.
+
+```{r,fig.width=10,fig.height=3, analysis}
+
+data_model = data %>% filter(Victim_Sex != 'U')
+
+ggplot(data_model, aes(x = Region, fill = factor(Murder))) +
+  geom_bar(position = "fill") +
+  labs(title = "Murder across Regions per Victim sex") +
+  scale_fill_manual(values = c("blue", "red"), labels = c("No Murder", "Murder")) +
+  theme_minimal() +
+  facet_wrap(~ Victim_Sex)
+
+```
+
+
+
+### Model
+
+Here I am proposing a simple logistic regression model with the idea of investigating if the likelihood of being murdered is different across regions and the victim sex. The results are coherent with the intuition from the chart above, the coefficients that showed statistical significance are around Queens and Staten Island and being a female victim as one can see below. But in general the odds of murder are not that different across regions and sex. 
+
+```{r model}
+
+model <- glm(Murder ~ Victim_Sex * Region, data = data_model, family = binomial)
+summary(model)
+
+```
+
+
+### Biases
+
+This data has at least one bias regarding the way the incidents are registered. For example, if some shooting happens and there is no witnesses, probably there won't be any register of this. Another possible bias, considering my analysis, could be the way I chose the variables to be tested in the model, also the type of model and last but not least the years considered in the analysis and the changes in the patterns over time.
+
